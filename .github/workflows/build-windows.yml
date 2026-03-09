@@ -50,6 +50,33 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Download CodeSignTool
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\codesigntool"
+          Invoke-WebRequest -Uri "https://github.com/SSLcom/CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2-windows.zip" -OutFile "$env:RUNNER_TEMP\codesigntool\CodeSignTool.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\codesigntool\CodeSignTool.zip" -DestinationPath "$env:RUNNER_TEMP\codesigntool" -Force
+        shell: pwsh
+
+      - name: Sign executables
+        env:
+          SSL_COM_USERNAME: ${{ secrets.SSL_COM_USERNAME }}
+          SSL_COM_PASSWORD: ${{ secrets.SSL_COM_PASSWORD }}
+          SSL_COM_CREDENTIAL_ID: ${{ secrets.SSL_COM_CREDENTIAL_ID }}
+          SSL_COM_TOTP_SECRET: ${{ secrets.SSL_COM_TOTP_SECRET }}
+        run: |
+          $cstDir = "$env:RUNNER_TEMP\codesigntool"
+          if (-not (Test-Path "$cstDir\CodeSignTool.bat")) { Write-Error "CodeSignTool.bat not found"; exit 1 }
+          $exeFiles = Get-ChildItem -Path "dist-electron" -Filter "*.exe" -Recurse
+          foreach ($exe in $exeFiles) {
+            Write-Host "Signing $($exe.FullName)..."
+            Push-Location $cstDir
+            cmd /c "CodeSignTool.bat sign -username=`"$env:SSL_COM_USERNAME`" -password=`"$env:SSL_COM_PASSWORD`" -credential_id=`"$env:SSL_COM_CREDENTIAL_ID`" -totp_secret=`"$env:SSL_COM_TOTP_SECRET`" -input_file_path=`"$($exe.FullName)`" -override=true"
+            $exitCode = $LASTEXITCODE
+            Pop-Location
+            if ($exitCode -ne 0) { Write-Error "Signing failed for $($exe.Name)"; exit 1 }
+          }
+        shell: pwsh
+
       - name: Upload NSIS installer artifact
         uses: actions/upload-artifact@v4
         with:
